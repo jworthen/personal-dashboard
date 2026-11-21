@@ -123,8 +123,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--lav);outline:none}
 
 /* ---------- tasks ---------- */
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
-.addrow input[type=text]{flex:1 1 100%}
-.addrow select{flex:1 1 120px}
+.addrow input[type=text]{flex:1 1 200px}
 .tasklist{list-style:none;margin:0;padding:0;display:grid;gap:4px;min-height:34px}
 .task{border-radius:12px;background:#FFFDFE;border:1px solid var(--rule)}
 .task .row{display:flex;align-items:center;gap:8px;padding:6px 8px;flex-wrap:wrap}
@@ -713,18 +712,19 @@ function taskHtml(t,compact){
       ${compact?'':`<button class="icon-btn" data-act="openTask" data-id="${t.id}" aria-expanded="${open}">${open?'Close':'Edit'}</button>`}</div>
     ${open?`<div class="edit">
       <div class="f"><label for="e-t">Title</label><input type="text" id="e-t" data-chg="editTask" data-f="title" data-id="${t.id}" value="${esc(t.title)}"></div>
-      <div class="f"><label for="e-c">Category</label><select id="e-c" data-chg="editTask" data-f="category" data-id="${t.id}">${catOptions(t.category)}</select>
-        <label for="e-d">Due</label><input type="date" id="e-d" data-chg="editTask" data-f="due" data-id="${t.id}" value="${esc(t.due)}"></div>
+      <div class="pills"><span class="p-l">Category</span>${S.settings.categories.map(c=>`<button type="button" class="pill" data-act="setCat" data-id="${t.id}" data-v="${esc(c.name)}" aria-pressed="${t.category===c.name}"><span class="dot c-${c.color}"></span>${esc(c.name)}</button>`).join('')}</div>
+      <div class="f"><label for="e-d">Due</label><input type="date" id="e-d" data-chg="editTask" data-f="due" data-id="${t.id}" value="${esc(t.due)}"></div>
       <div class="pills"><span class="p-l">Move to</span>${[{k:'backlog',name:'Backlog'},...QUADS].map(q=>`<button type="button" class="pill" data-act="moveTask" data-id="${t.id}" data-v="${q.k}" aria-pressed="${t.quadrant===q.k}">${q.name}</button>`).join('')}</div>
       <div><button class="btn danger sm" data-act="delTask" data-id="${t.id}">Delete task</button></div></div>`:''}
   </li>`;
 }
-const catOptions=sel=>{const names=S.settings.categories.map(c=>c.name);if(sel&&!names.includes(sel))names.push(sel);return names.map(n=>`<option ${n===sel?'selected':''}>${esc(n)}</option>`).join('')};
 function renderTaskForm(){
-  $('taskForm').innerHTML=`<input type="text" id="newTitle" aria-label="New task" placeholder="Add a task to the backlog">
-    <select id="newCat" aria-label="Category">${catOptions(S.ui.cat!=='all'?S.ui.cat:'')}</select>
+  $('taskForm').innerHTML=`<input type="text" id="newTitle" aria-label="New task">
     <input type="date" id="newDue" aria-label="Due date"><button class="btn primary">Add</button>`;
+  newHint();
 }
+const newCat=()=>S.ui.cat!=='all'?S.ui.cat:(S.settings.categories.find(c=>c.name==='Personal')||S.settings.categories[0]).name;
+function newHint(){const el=$('newTitle');if(el)el.placeholder='Add a '+newCat()+' task'}
 function renderTasks(){
   const u=S.ui;
   $('taskFilters').innerHTML=
@@ -839,11 +839,12 @@ const ACT={
   useFocus(el){const t=task(el.dataset.id);if(t){S.focus[S.today]=t.title;S.editFocus=false;save('Focus');renderTop()}},
   range(el){S.ui.range=el.dataset.v;saveUi();renderSchedule()},
   cal(el){const i=S.ui.hiddenCals.indexOf(el.dataset.v);i<0?S.ui.hiddenCals.push(el.dataset.v):S.ui.hiddenCals.splice(i,1);saveUi();renderSchedule();renderMini();renderStats()},
-  fcat(el){S.ui.cat=el.dataset.v;saveUi();renderTasks();if(S.ui.cat!=='all')$('newCat').value=S.ui.cat},
+  fcat(el){S.ui.cat=el.dataset.v;saveUi();renderTasks();newHint()},
   fstatus(el){S.ui.status=el.dataset.v;saveUi();renderTasks()},
   fdue(el){S.ui.due=el.dataset.v;saveUi();renderTasks()},
   openTask(el){S.openTask=S.openTask===el.dataset.id?null:el.dataset.id;renderTasks()},
   moveTask(el){moveTask(el.dataset.id,el.dataset.v)},
+  setCat(el){const t=task(el.dataset.id);if(t&&t.category!==el.dataset.v){t.category=el.dataset.v;afterTasks()}},
   delTask(el){S.tasks=S.tasks.filter(t=>t.id!==el.dataset.id);S.openTask=null;afterTasks()},
   read(el){const l=logOf(S.trackDate,true);l.reading=Math.max(0,(l.reading||0)+Number(el.dataset.v));afterLog()},
   water(el){const l=logOf(S.trackDate,true);l.water=Math.max(0,(l.water||0)+Number(el.dataset.v));afterLog()},
@@ -881,7 +882,7 @@ document.addEventListener('change',e=>{const el=e.target.closest('[data-chg]');i
 document.addEventListener('submit',e=>{
   e.preventDefault();const id=e.target.id;
   if(id==='taskForm'){const v=$('newTitle').value.trim();if(!v)return;
-    S.tasks.push({id:uid(),title:v,category:$('newCat').value,due:$('newDue').value,quadrant:'backlog',done:false,created:S.today,completed:''});
+    S.tasks.push({id:uid(),title:v,category:newCat(),due:$('newDue').value,quadrant:'backlog',done:false,created:S.today,completed:''});
     $('newTitle').value='';$('newDue').value='';afterTasks();$('newTitle').focus()}
   else if(id==='capForm'){const v=$('capText').value.trim();if(!v)return;
     S.notes.push({id:uid(),type:/^https?:\/\/\S+$/i.test(v)?'link':S.ui.cap,text:v,created:S.today});$('capText').value='';save('Notes');renderNotes()}
