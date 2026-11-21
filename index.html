@@ -651,7 +651,7 @@ function dayView(d){
   });
   timed.forEach(ev=>{const [a,z]=span(ev);items.push({k:'e',s:a,e:z,ev})});
   items.sort((x,y)=>x.s-y.s||(x.k==='b'?-1:1));
-  items.forEach(it=>{it.state=nowM<0?'':it.e<=nowM?'past':it.s<=nowM?'now':''});
+  items.forEach(it=>{it.today=isToday;it.state=nowM<0?'':it.e<=nowM?'past':it.s<=nowM?'now':''});
   return {all,items};
 }
 function itemHtml(it,i){
@@ -662,17 +662,17 @@ function itemHtml(it,i){
       <div class="meta">${esc(c?c.name:'Calendar')}${e.where?' · '+esc(e.where):''}</div></div></li>`;
   }
   const b=it.b,tints=['t-lav','t-mint','t-blue','t-yellow','t-pink'],rem=String(b.rem||'').split(',').map(s=>s.trim()).filter(Boolean);
-  const feed=it.dim?[]:feedTasks(b);
+  const feed=it.dim||!it.today?[]:feedTasks(b); // task suggestions only make sense for today
   return `<li class="blk ${it.dim?'dim':tints[i%tints.length]} ${it.state}">${time}<div><div class="ttl">${esc(b.title)}${tag}</div>
     ${it.dim?'<div class="meta">A meeting covers most of this block.</div>':''}
     ${rem.length&&!it.dim?`<div class="rem">${rem.map(r=>`<span>${esc(r)}</span>`).join('')}</div>`:''}
     ${feed.length?`<ul class="feed">${feed.map(t=>`<li><label><input type="checkbox" data-chg="toggleTask" data-id="${t.id}"><span>${esc(t.title)} <span class="meta">${esc(t.category)}</span></span></label></li>`).join('')}</ul>`:''}</div></li>`;
 }
-function dayHtml(d,blended){
+function dayHtml(d,blended,quiet){
   const v=dayView(d);let items=v.items;if(!blended)items=items.filter(i=>i.k==='e');
   let h=v.all.length?`<div class="allday">${v.all.map(e=>`<span class="chip"><span class="dot c-${calColor(e.calId)}"></span> ${esc(e.title)}</span>`).join('')}</div>`:'';
   let bi=0;
-  h+=items.length?`<ul class="tl">${items.map(it=>itemHtml(it,it.k==='b'?bi++:0)).join('')}</ul>`:(v.all.length?'':blended?empty('Nothing on the calendar. A wide open day.',true):'<div class="meta">Nothing scheduled.</div>');
+  h+=items.length?`<ul class="tl">${items.map(it=>itemHtml(it,it.k==='b'?bi++:0)).join('')}</ul>`:(v.all.length?'':blended&&!quiet?empty('Nothing on the calendar. A wide open day.',true):'<div class="meta">Nothing scheduled.</div>');
   return h;
 }
 function renderSchedule(){
@@ -683,7 +683,7 @@ function renderSchedule(){
   const t=pd(S.today);let h=S.eventsErr?`<div class="banner err">${esc(S.eventsErr)}</div>`:'';
   if(r==='today')h+=dayHtml(t,true);
   else if(r==='tomorrow')h+=`<div class="dayhead">${fmtDay(addDays(t,1))}</div>`+dayHtml(addDays(t,1),true);
-  else for(let i=0;i<7;i++){const d=addDays(t,i);h+=`<div class="dayhead">${i===0?'Today':fmtDay(d)}</div>`+dayHtml(d,false)}
+  else for(let i=0;i<7;i++){const d=addDays(t,i);h+=`<div class="dayhead">${i===0?'Today':fmtDay(d)}</div>`+dayHtml(d,true,true)}
   $('schedBody').innerHTML=h;
   $('schedUpd').textContent=S.mode==='demo'?'Sample events':S.eventsAt?'Calendar as of '+fmtClock(S.eventsAt):'';
 }
