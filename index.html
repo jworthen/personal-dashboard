@@ -163,6 +163,8 @@ input[type=checkbox]:checked::after{content:"";width:9px;height:5px;border-left:
 .drops{display:flex;gap:3px}
 .drops i{width:10px;height:14px;border-radius:50% 50% 50% 50%/62% 62% 38% 38%;background:var(--t-blue)}
 .drops i.on{background:var(--blue)}
+.drops.walk i{width:13px;height:13px;border-radius:50%;background:var(--t-mint)}
+.drops.walk i.on{background:var(--mint)}
 .hgrid{display:grid;gap:3px;align-items:center;margin-top:4px}
 .hgrid .hl{font-size:12px;font-weight:700;white-space:nowrap;padding-right:6px}
 .hgrid .hd{font-size:10.5px;font-weight:700;color:var(--muted);text-align:center;background:none;border:0;padding:2px 0;border-radius:6px}
@@ -349,7 +351,7 @@ const DEFAULTS=()=>({
     {start:'15:30',end:'17:00',title:'Meetings / work with headphones',rem:'headphones',feed:''},
     {start:'17:00',end:'18:00',title:'Cook, meal plan, or grocery list + job search',rem:'',feed:'Meal planning/prep, Job search'}
   ],
-  goals:{water:8,reading:20},
+  goals:{water:8,reading:20,walks:2},
   calendars:{},
   daysOff:[],   // dates (YYYY-MM-DD) with no base schedule
   skipped:{}    // date -> base blocks skipped on that one day
@@ -357,7 +359,7 @@ const DEFAULTS=()=>({
 const TABS={
   Tasks:['id','title','category','due','quadrant','done','created','completed'],
   Notes:['id','type','text','created'],
-  Log:['date','reading','journal','water','jobsearch','teeth_am','teeth_pm','shower'],
+  Log:['date','reading','journal','water','jobsearch','teeth_am','teeth_pm','shower','walks'],
   Focus:['date','focus'],
   Settings:['key','value']
 };
@@ -368,8 +370,8 @@ const QUADS=[
   {k:'drop',name:'Drop',sub:'neither',tint:'t-lav'}
 ];
 const TR=[
-  {k:'reading',name:'Reading',color:'lav'},{k:'journal',name:'Journaling',color:'pink'},{k:'water',name:'Water',color:'blue'},
-  {k:'jobsearch',name:'Job search',color:'yellow'},{k:'teeth',name:'Brush teeth',color:'mint'},{k:'shower',name:'Shower',color:'coral'}
+  {k:'reading',name:'Reading',color:'lav'},{k:'journal',name:'Journaling',color:'pink'},{k:'water',name:'Water',color:'blue'},{k:'walks',name:'Walks',color:'mint'},
+  {k:'jobsearch',name:'Job search',color:'yellow'},{k:'teeth',name:'Brush teeth',color:'lav'},{k:'shower',name:'Shower',color:'coral'}
 ];
 const S={
   mode:LS.get('mode','demo'), today:ymd(new Date()),
@@ -388,7 +390,7 @@ const saveUi=()=>LS.set('ui',S.ui);
 function toRows(tab){
   if(tab==='Tasks')return S.tasks.map(t=>[t.id,t.title,t.category,t.due||'',t.quadrant,t.done?'TRUE':'FALSE',t.created||'',t.completed||'']);
   if(tab==='Notes')return S.notes.map(n=>[n.id,n.type,n.text,n.created||'']);
-  if(tab==='Log')return Object.keys(S.log).sort().map(d=>{const l=S.log[d];return [d,l.reading??'',l.journal?'TRUE':'FALSE',l.water??'',l.jobsearch?'TRUE':'FALSE',l.teeth_am?'TRUE':'FALSE',l.teeth_pm?'TRUE':'FALSE',l.shower?'TRUE':'FALSE']});
+  if(tab==='Log')return Object.keys(S.log).sort().map(d=>{const l=S.log[d];return [d,l.reading??'',l.journal?'TRUE':'FALSE',l.water??'',l.jobsearch?'TRUE':'FALSE',l.teeth_am?'TRUE':'FALSE',l.teeth_pm?'TRUE':'FALSE',l.shower?'TRUE':'FALSE',l.walks??'']});
   if(tab==='Focus')return Object.keys(S.focus).sort().map(d=>[d,S.focus[d]]);
   if(tab==='Settings')return Object.keys(S.settings).map(k=>[k,JSON.stringify(S.settings[k])]);
   return [];
@@ -405,7 +407,7 @@ function fromRows(tab,rows){
   }else if(tab==='Notes'){
     S.notes=rows.filter(r=>r&&(r[2]||'').trim()).map(r=>{if(!r[0])fixed=true;return {id:r[0]||uid(),type:['note','link','action'].includes(r[1])?r[1]:'note',text:String(r[2]),created:r[3]||S.today}});
   }else if(tab==='Log'){
-    S.log={};rows.forEach(r=>{const d=cleanDate(r&&r[0]);if(d)S.log[d]={reading:num(r[1]),journal:truthy(r[2]),water:num(r[3]),jobsearch:truthy(r[4]),teeth_am:truthy(r[5]),teeth_pm:truthy(r[6]),shower:truthy(r[7])}});
+    S.log={};rows.forEach(r=>{const d=cleanDate(r&&r[0]);if(d)S.log[d]={reading:num(r[1]),journal:truthy(r[2]),water:num(r[3]),jobsearch:truthy(r[4]),teeth_am:truthy(r[5]),teeth_pm:truthy(r[6]),shower:truthy(r[7]),walks:num(r[8])}});
   }else if(tab==='Focus'){
     S.focus={};rows.forEach(r=>{const d=cleanDate(r&&r[0]);if(d&&r[1])S.focus[d]=String(r[1])});
   }else if(tab==='Settings'){
@@ -501,7 +503,7 @@ async function flush(){
       if(rowCount[tab]==null){const cur=await gfetch(`${SH}/${id}/values/${tab}!A2:A`);rowCount[tab]=(cur.values||[]).length}
       const out=rows.slice();for(let i=rows.length;i<rowCount[tab];i++)out.push(Array(w).fill('')); // blank out leftover rows in the same write
       const v=ver[tab];
-      if(out.length)await gfetch(`${SH}/${id}/values/${tab}!A2?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:out})});
+      await gfetch(`${SH}/${id}/values/${tab}!A1?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:[TABS[tab],...out]})});
       rowCount[tab]=rows.length;
       if(ver[tab]===v)dirty.delete(tab); // edited again while saving? keep it marked and save once more
     }
@@ -596,18 +598,20 @@ function feedTasks(b){
   const rank={do:0,schedule:1,backlog:2,delegate:3,drop:4};
   return S.tasks.filter(t=>!t.done&&cats.includes(t.category.toLowerCase())).sort((a,b)=>(rank[a.quadrant]-rank[b.quadrant])||taskSort(a,b)).slice(0,2);
 }
-function logOf(d,make){if(!S.log[d]&&make)S.log[d]={reading:null,journal:false,water:null,jobsearch:false,teeth_am:false,teeth_pm:false,shower:false};return S.log[d]}
+const goals=()=>Object.assign({water:8,reading:20,walks:2},S.settings.goals);
+function logOf(d,make){if(!S.log[d]&&make)S.log[d]={reading:null,journal:false,water:null,jobsearch:false,teeth_am:false,teeth_pm:false,shower:false,walks:null};return S.log[d]}
 // level: null = no entry, 0 = not done, 1 = partly, 2 = done
 function level(k,d){
-  const l=S.log[d],g=S.settings.goals;if(!l)return null;
+  const l=S.log[d],g=goals();if(!l)return null;
   if(k==='reading')return l.reading==null?null:l.reading>=g.reading?2:l.reading>0?1:0;
   if(k==='water')return l.water==null?null:l.water>=g.water?2:l.water>0?1:0;
+  if(k==='walks')return l.walks==null?null:l.walks>=g.walks?2:l.walks>0?1:0;
   if(k==='teeth')return (l.teeth_am?1:0)+(l.teeth_pm?1:0);
   return l[k]?2:0;
 }
 function dayScore(d){
-  const wd=pd(d).getDay()%6!==0&&!isOff(d),l=S.log[d]||{},g=S.settings.goals;let hit=0,poss=6;
-  if((l.reading||0)>=g.reading)hit++; if(l.journal)hit++; if((l.water||0)>=g.water)hit++;
+  const wd=pd(d).getDay()%6!==0&&!isOff(d),l=S.log[d]||{},g=goals();let hit=0,poss=7;
+  if((l.reading||0)>=g.reading)hit++; if(l.journal)hit++; if((l.water||0)>=g.water)hit++; if((l.walks||0)>=g.walks)hit++;
   if(l.teeth_am)hit++; if(l.teeth_pm)hit++; if(l.shower)hit++;
   if(wd){poss++;if(l.jobsearch)hit++}
   return [hit,poss];
@@ -753,7 +757,7 @@ function renderTasks(){
 
 /* ===================== render: trackers ===================== */
 function renderTrackers(){
-  const d=S.trackDate,l=S.log[d]||{},g=S.settings.goals,isT=d===S.today,water=l.water||0;
+  const d=S.trackDate,l=S.log[d]||{},g=goals(),isT=d===S.today,water=l.water||0,walks=l.walks||0;
   const tog=(k,label)=>`<button type="button" class="tog" data-act="tog" data-k="${k}" aria-pressed="${l[k]?'true':'false'}">${l[k]?'✓ ':''}${label}</button>`;
   let h=`<div class="pills" style="margin-bottom:8px"><span class="p-l">Logging for</span><b>${isT?'Today':fmtDay(pd(d))}</b>${isT?'':`<button class="btn sm" data-act="trackDay" data-v="${S.today}">Back to today</button>`}</div>
   <div class="trk">
@@ -762,6 +766,9 @@ function renderTrackers(){
     <div class="line"><span class="name">Water</span><span class="val">${water}<span class="meta"> of ${g.water}</span></span>
       <button class="step" data-act="water" data-v="-1" aria-label="One less glass">−</button><button class="step" data-act="water" data-v="1" aria-label="Add a glass of water">+</button>
       <span class="drops" aria-hidden="true">${Array.from({length:g.water},(_,i)=>`<i class="${i<water?'on':''}"></i>`).join('')}</span></div>
+    <div class="line"><span class="name">Walks</span><span class="val">${walks}<span class="meta"> of ${g.walks}</span></span>
+      <button class="step" data-act="walks" data-v="-1" aria-label="One less walk">−</button><button class="step" data-act="walks" data-v="1" aria-label="Add a walk">+</button>
+      <span class="drops walk" aria-hidden="true">${Array.from({length:g.walks},(_,i)=>`<i class="${i<walks?'on':''}"></i>`).join('')}</span></div>
     <div class="line"><span class="name">Journaling</span>${tog('journal','Done')}<span class="meta">${streak('journal')} day streak</span></div>
     <div class="line"><span class="name">Job search</span>${tog('jobsearch','Done')}<span class="meta">weekdays</span></div>
     <div class="line"><span class="name">Brush teeth</span>${tog('teeth_am','Morning')}${tog('teeth_pm','Evening')}</div>
@@ -813,8 +820,9 @@ function renderSettings(){
   <h3>Calendars to show</h3>
   ${S.calendars.length?S.calendars.map(c=>`<div class="srow"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-chg="calOn" data-id="${esc(c.id)}" ${calOn(c)?'checked':''}> ${esc(c.name)}${c.primary?' <span class="meta">(main)</span>':''}</label></div>`).join(''):'<p>Connect Google to choose calendars.</p>'}
   <h3>Daily goals</h3>
-  <div class="srow"><label>Water glasses <input type="number" min="1" max="20" style="width:70px" data-chg="goal" data-f="water" value="${s.goals.water}"></label>
-    <label>Reading minutes <input type="number" min="1" max="600" style="width:70px" data-chg="goal" data-f="reading" value="${s.goals.reading}"></label></div>
+  <div class="srow"><label>Water glasses <input type="number" min="1" max="20" style="width:70px" data-chg="goal" data-f="water" value="${goals().water}"></label>
+    <label>Walks <input type="number" min="1" max="10" style="width:70px" data-chg="goal" data-f="walks" value="${goals().walks}"></label>
+    <label>Reading minutes <input type="number" min="1" max="600" style="width:70px" data-chg="goal" data-f="reading" value="${goals().reading}"></label></div>
   <h3>Task categories</h3><p>Renaming a category also renames it on its tasks.</p>
   ${s.categories.map((c,i)=>`<div class="srow"><span class="dot c-${c.color}"></span><input type="text" aria-label="Category name" data-chg="catName" data-i="${i}" value="${esc(c.name)}">
     <select aria-label="Color" data-chg="catColor" data-i="${i}">${COLORS.map(k=>`<option ${k===c.color?'selected':''}>${k}</option>`).join('')}</select><button class="icon-btn" data-act="delCat" data-i="${i}">Remove</button></div>`).join('')}
@@ -870,6 +878,7 @@ const ACT={
   delTask(el){S.tasks=S.tasks.filter(t=>t.id!==el.dataset.id);S.openTask=null;afterTasks()},
   read(el){const l=logOf(S.trackDate,true);l.reading=Math.max(0,(l.reading||0)+Number(el.dataset.v));afterLog()},
   water(el){const l=logOf(S.trackDate,true);l.water=Math.max(0,(l.water||0)+Number(el.dataset.v));afterLog()},
+  walks(el){const l=logOf(S.trackDate,true);l.walks=Math.max(0,(l.walks||0)+Number(el.dataset.v));afterLog()},
   tog(el){const l=logOf(S.trackDate,true);l[el.dataset.k]=!l[el.dataset.k];afterLog()},
   trackDay(el){S.trackDate=el.dataset.v;renderTrackers()},
   trange(el){S.ui.trackRange=el.dataset.v;saveUi();renderTrackers()},
@@ -936,8 +945,8 @@ function seedDemo(){
     T('Sign the field trip form','Claire',0,'do'),T('RSVP to the guild potluck','Personal',5,'delegate'),T('Sort the junk drawer','Household',null,'drop')];
   S.notes=[{id:uid(),type:'note',text:'Ask about swapping the Thursday meeting time',created:d(0)},{id:uid(),type:'action',text:'Book the oil change',created:d(-1)},{id:uid(),type:'link',text:'https://www.example.com/sheet-pan-dinners',created:d(-1)}];
   S.log={};S.focus={};
-  for(let i=9;i>=1;i--)S.log[d(-i)]={reading:[25,0,30,20,10,40,0,20,15][i-1],journal:i%3!==0,water:[8,6,8,5,8,7,4,8,6][i-1],jobsearch:i%2===0,teeth_am:true,teeth_pm:i%4!==0,shower:i%2===1};
-  S.log[d(0)]={reading:10,journal:false,water:3,jobsearch:false,teeth_am:true,teeth_pm:false,shower:true};
+  for(let i=9;i>=1;i--)S.log[d(-i)]={reading:[25,0,30,20,10,40,0,20,15][i-1],journal:i%3!==0,water:[8,6,8,5,8,7,4,8,6][i-1],jobsearch:i%2===0,teeth_am:true,teeth_pm:i%4!==0,shower:i%2===1,walks:[2,1,2,2,0,1,2,1,2][i-1]};
+  S.log[d(0)]={reading:10,journal:false,water:3,jobsearch:false,teeth_am:true,teeth_pm:false,shower:true,walks:1};
 }
 
 /* ===================== boot ===================== */
