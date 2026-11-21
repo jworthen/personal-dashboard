@@ -638,11 +638,11 @@ function renderTop(){
   renderStats();
 }
 function renderStats(){
-  const open=S.tasks.filter(t=>!t.done),over=open.filter(isOver).length;
+  const open=S.tasks.filter(t=>!t.done),over=open.filter(isOver).length,doneToday=S.tasks.filter(t=>t.done&&t.completed===S.today).length;
   const today=pd(S.today),timed=eventsOn(today).filter(e=>!e.allDay),next=timed.find(e=>e.start>Date.now());
   const pct=weekScore();
   $('stats').innerHTML=
-    `<button class="stat" data-act="go" data-to="tasks" data-tab="tasks"><b>${open.length}</b><span class="s-l">open tasks</span><span class="s-x">${over?over+' overdue':'none overdue'}</span></button>
+    `<button class="stat" data-act="go" data-to="tasks" data-tab="tasks" data-status="done"><b>${doneToday}</b><span class="s-l">task${doneToday===1?'':'s'} done today</span><span class="s-x">${open.length} still open${over?', '+over+' overdue':''}</span></button>
      <button class="stat" data-act="go" data-to="sched" data-tab="schedule"><b>${timed.length}</b><span class="s-l">meeting${timed.length===1?'':'s'} today</span><span class="s-x">${next?'next at '+fmtClock(next.start):timed.length?'all done for today':'clear calendar'}</span></button>
      <button class="stat" data-act="go" data-to="track" data-tab="today"><b>${pct}%</b><span class="s-l">habits this week</span><span class="meter" aria-hidden="true"><i style="width:${pct}%"></i></span></button>`;
 }
@@ -860,7 +860,7 @@ const ACT={
   refresh(el){refreshAll(el.dataset.what)},
   collapse(el){const i=S.ui.collapsed.indexOf(el.dataset.id);i<0?S.ui.collapsed.push(el.dataset.id):S.ui.collapsed.splice(i,1);saveUi();renderAll()},
   tab(el){document.body.dataset.tab=el.dataset.tab;window.scrollTo(0,0);renderAll()},
-  go(el){document.body.dataset.tab=el.dataset.tab;const i=S.ui.collapsed.indexOf(el.dataset.to);if(i>=0)S.ui.collapsed.splice(i,1);if(el.dataset.to==='tasks')S.ui.status='open';renderAll();$(el.dataset.to).scrollIntoView({behavior:'smooth',block:'start'})},
+  go(el){document.body.dataset.tab=el.dataset.tab;const i=S.ui.collapsed.indexOf(el.dataset.to);if(i>=0)S.ui.collapsed.splice(i,1);if(el.dataset.to==='tasks'){S.ui.status=el.dataset.status||'open';S.ui.cat='all';S.ui.due='any';saveUi()}renderAll();$(el.dataset.to).scrollIntoView({behavior:'smooth',block:'start'})},
   editFocus(){S.editFocus=true;renderTop();$('focusIn').focus()},
   useFocus(el){const t=task(el.dataset.id);if(t){S.focus[S.today]=t.title;S.editFocus=false;save('Focus');renderTop()}},
   dayOff(el){const a=S.settings.daysOff=S.settings.daysOff||[],v=el.dataset.v,i=a.indexOf(v);i<0?a.push(v):a.splice(i,1);afterDay()},
