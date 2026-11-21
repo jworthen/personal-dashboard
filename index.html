@@ -375,7 +375,7 @@ const S={
   openTask:null,editFocus:false,trackDate:ymd(new Date())
 };
 let token=LS.get('token',null), tokenClient=null, flushing=false, flushTimer=null, loading=false;
-const dirty=new Set(LS.get('dirty',[])); const rowCount={};
+const dirty=new Set(LS.get('dirty',[])); const rowCount={}, ver={};
 const tokenOk=()=>token&&token.exp>Date.now();
 const clientId=()=>CLIENT_ID||LS.get('clientId','');
 const saveUi=()=>LS.set('ui',S.ui);
@@ -422,7 +422,7 @@ function loadCache(){
 function save(tab){
   cache();
   if(S.mode!=='google')return;
-  dirty.add(tab);LS.set('dirty',[...dirty]);setSync();
+  dirty.add(tab);ver[tab]=(ver[tab]||0)+1;LS.set('dirty',[...dirty]);setSync();
   clearTimeout(flushTimer);flushTimer=setTimeout(flush,900);
 }
 
@@ -496,9 +496,10 @@ async function flush(){
       const rows=toRows(tab),w=TABS[tab].length;
       if(rowCount[tab]==null){const cur=await gfetch(`${SH}/${id}/values/${tab}!A2:A`);rowCount[tab]=(cur.values||[]).length}
       const out=rows.slice();for(let i=rows.length;i<rowCount[tab];i++)out.push(Array(w).fill('')); // blank out leftover rows in the same write
-      dirty.delete(tab);
-      try{if(out.length)await gfetch(`${SH}/${id}/values/${tab}!A2?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:out})});rowCount[tab]=rows.length}
-      catch(e){dirty.add(tab);throw e}
+      const v=ver[tab];
+      if(out.length)await gfetch(`${SH}/${id}/values/${tab}!A2?valueInputOption=RAW`,{method:'PUT',body:JSON.stringify({values:out})});
+      rowCount[tab]=rows.length;
+      if(ver[tab]===v)dirty.delete(tab); // edited again while saving? keep it marked and save once more
     }
     S.dataErr='';S.dataAt=Date.now();
   }catch(e){S.dataErr=e instanceof AuthErr?'':e.message;if(e instanceof AuthErr)showAuthBanner()}
@@ -731,6 +732,8 @@ function renderTasks(){
     `<div class="pills"><span class="p-l">Category</span>${pill('fcat','all','All',u.cat==='all')}${S.settings.categories.map(c=>pill('fcat',c.name,c.name,u.cat===c.name,`<span class="dot c-${c.color}"></span>`)).join('')}</div>
      <div class="pills"><span class="p-l">Status</span>${pill('fstatus','open','Open',u.status==='open')}${pill('fstatus','overdue','Overdue',u.status==='overdue')}${pill('fstatus','done','Done',u.status==='done')}
        <span class="p-l" style="margin-left:8px">Due</span>${pill('fdue','any','Any time',u.due==='any')}${pill('fdue','today','Today',u.due==='today')}${pill('fdue','week','This week',u.due==='week')}</div>`;
+  const hid=S.tasks.filter(t=>!t.done&&!passes(t)).length;
+  if(hid)$('taskFilters').insertAdjacentHTML('beforeend',`<div class="meta">${hid} open task${hid===1?' is':'s are'} hidden by these filters. <button type="button" class="btn sm" data-act="clearFilters">Show all</button></div>`);
   const vis=S.tasks.filter(passes).sort(taskSort),bl=vis.filter(t=>t.quadrant==='backlog');
   $('backlogN').textContent='('+bl.length+')';
   $('backlog').innerHTML=bl.map(t=>taskHtml(t)).join('')||`<li>${empty(S.tasks.length?'Nothing in the backlog matches these filters.':'Your backlog is empty. Add a task above.',true)}</li>`;
@@ -840,6 +843,7 @@ const ACT={
   range(el){S.ui.range=el.dataset.v;saveUi();renderSchedule()},
   cal(el){const i=S.ui.hiddenCals.indexOf(el.dataset.v);i<0?S.ui.hiddenCals.push(el.dataset.v):S.ui.hiddenCals.splice(i,1);saveUi();renderSchedule();renderMini();renderStats()},
   fcat(el){S.ui.cat=el.dataset.v;saveUi();renderTasks();newHint()},
+  clearFilters(){S.ui.cat='all';S.ui.status='open';S.ui.due='any';saveUi();renderTasks();newHint()},
   fstatus(el){S.ui.status=el.dataset.v;saveUi();renderTasks()},
   fdue(el){S.ui.due=el.dataset.v;saveUi();renderTasks()},
   openTask(el){S.openTask=S.openTask===el.dataset.id?null:el.dataset.id;renderTasks()},
