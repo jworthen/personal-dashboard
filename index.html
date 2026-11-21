@@ -120,6 +120,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--lav);outline:none}
 .feed{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:3px}
 .feed label{display:flex;gap:7px;align-items:flex-start;font-size:13.5px}
 .dayhead{font:600 15px var(--display);margin:12px 0 6px}
+.dayctl{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.skip{float:right;margin-left:6px;background:rgba(255,255,255,.6);font-size:11.5px;padding:1px 8px}
 
 /* ---------- tasks ---------- */
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
@@ -348,7 +350,9 @@ const DEFAULTS=()=>({
     {start:'17:00',end:'18:00',title:'Cook, meal plan, or grocery list + job search',rem:'',feed:'Meal planning/prep, Job search'}
   ],
   goals:{water:8,reading:20},
-  calendars:{}
+  calendars:{},
+  daysOff:[],   // dates (YYYY-MM-DD) with no base schedule
+  skipped:{}    // date -> base blocks skipped on that one day
 });
 const TABS={
   Tasks:['id','title','category','due','quadrant','done','created','completed'],
@@ -602,7 +606,7 @@ function level(k,d){
   return l[k]?2:0;
 }
 function dayScore(d){
-  const wd=pd(d).getDay()%6!==0,l=S.log[d]||{},g=S.settings.goals;let hit=0,poss=6;
+  const wd=pd(d).getDay()%6!==0&&!isOff(d),l=S.log[d]||{},g=S.settings.goals;let hit=0,poss=6;
   if((l.reading||0)>=g.reading)hit++; if(l.journal)hit++; if((l.water||0)>=g.water)hit++;
   if(l.teeth_am)hit++; if(l.teeth_pm)hit++; if(l.shower)hit++;
   if(wd){poss++;if(l.jobsearch)hit++}
@@ -644,16 +648,18 @@ function dayView(d){
   const isToday=ymd(d)===S.today,now=new Date(),nowM=isToday?now.getHours()*60+now.getMinutes():-1;
   const evs=eventsOn(d),all=evs.filter(e=>e.allDay),timed=evs.filter(e=>!e.allDay),ds=+sod(d);
   const span=e=>[Math.max(0,Math.round((e.start-ds)/6e4)),Math.min(1440,Math.round((e.end-ds)/6e4))];
-  const items=[];
-  if(d.getDay()>=1&&d.getDay()<=5)S.settings.blocks.forEach(b=>{
+  const items=[],key=ymd(d),weekday=d.getDay()>=1&&d.getDay()<=5,off=isOff(key),skip=(S.settings.skipped||{})[key]||[];
+  if(weekday&&!off)S.settings.blocks.filter(b=>!skip.includes(blockKey(b))).forEach(b=>{
     const s=hm(b.start),e=hm(b.end);let ov=0;timed.forEach(ev=>{const [a,z]=span(ev);ov+=Math.max(0,Math.min(e,z)-Math.max(s,a))});
     items.push({k:'b',s,e,b,dim:e>s&&ov/(e-s)>=.5});
   });
   timed.forEach(ev=>{const [a,z]=span(ev);items.push({k:'e',s:a,e:z,ev})});
   items.sort((x,y)=>x.s-y.s||(x.k==='b'?-1:1));
-  items.forEach(it=>{it.today=isToday;it.state=nowM<0?'':it.e<=nowM?'past':it.s<=nowM?'now':''});
-  return {all,items};
+  items.forEach(it=>{it.today=isToday;it.day=key;it.state=nowM<0?'':it.e<=nowM?'past':it.s<=nowM?'now':''});
+  return {all,items,key,weekday,off,skipped:off?0:skip.length};
 }
+const blockKey=b=>b.start+'|'+b.title;
+const isOff=k=>(S.settings.daysOff||[]).includes(k);
 function itemHtml(it,i){
   const time=`<div class="time">${fmtMin(it.s)}<br>${fmtMin(it.e%1440)}</div>`,tag=it.state==='now'?'<span class="nowtag">now</span>':'';
   if(it.k==='e'){
@@ -663,14 +669,18 @@ function itemHtml(it,i){
   }
   const b=it.b,tints=['t-lav','t-mint','t-blue','t-yellow','t-pink'],rem=String(b.rem||'').split(',').map(s=>s.trim()).filter(Boolean);
   const feed=it.dim||!it.today?[]:feedTasks(b); // task suggestions only make sense for today
-  return `<li class="blk ${it.dim?'dim':tints[i%tints.length]} ${it.state}">${time}<div><div class="ttl">${esc(b.title)}${tag}</div>
+  return `<li class="blk ${it.dim?'dim':tints[i%tints.length]} ${it.state}">${time}<div><button type="button" class="icon-btn skip" data-act="skipBlock" data-d="${it.day}" data-k="${esc(blockKey(b))}" aria-label="Skip ${esc(b.title)} on this day only">Skip</button><div class="ttl">${esc(b.title)}${tag}</div>
     ${it.dim?'<div class="meta">A meeting covers most of this block.</div>':''}
     ${rem.length&&!it.dim?`<div class="rem">${rem.map(r=>`<span>${esc(r)}</span>`).join('')}</div>`:''}
     ${feed.length?`<ul class="feed">${feed.map(t=>`<li><label><input type="checkbox" data-chg="toggleTask" data-id="${t.id}"><span>${esc(t.title)} <span class="meta">${esc(t.category)}</span></span></label></li>`).join('')}</ul>`:''}</div></li>`;
 }
 function dayHtml(d,blended,quiet){
   const v=dayView(d);let items=v.items;if(!blended)items=items.filter(i=>i.k==='e');
-  let h=v.all.length?`<div class="allday">${v.all.map(e=>`<span class="chip"><span class="dot c-${calColor(e.calId)}"></span> ${esc(e.title)}</span>`).join('')}</div>`:'';
+  let h='';
+  if(v.weekday)h+=v.off
+    ?`<div class="dayctl"><span class="chip t-mint">Day off</span><span class="meta">Base schedule hidden. Calendar events still show.</span><button type="button" class="icon-btn" data-act="dayOff" data-v="${v.key}">Make it a workday again</button></div>`
+    :`<div class="dayctl"><button type="button" class="icon-btn" data-act="dayOff" data-v="${v.key}">Take this day off</button>${v.skipped?`<span class="meta">${v.skipped} block${v.skipped===1?'':'s'} skipped</span><button type="button" class="icon-btn" data-act="restoreBlocks" data-v="${v.key}">Restore</button>`:''}</div>`;
+  h+=v.all.length?`<div class="allday">${v.all.map(e=>`<span class="chip"><span class="dot c-${calColor(e.calId)}"></span> ${esc(e.title)}</span>`).join('')}</div>`:'';
   let bi=0;
   h+=items.length?`<ul class="tl">${items.map(it=>itemHtml(it,it.k==='b'?bi++:0)).join('')}</ul>`:(v.all.length?'':blended&&!quiet?empty('Nothing on the calendar. A wide open day.',true):'<div class="meta">Nothing scheduled.</div>');
   return h;
@@ -678,7 +688,7 @@ function dayHtml(d,blended,quiet){
 function renderSchedule(){
   const r=S.ui.range;
   $('schedFilters').innerHTML=
-    `<div class="pills"><span class="p-l">Show</span>${pill('range','today','Today',r==='today')}${pill('range','tomorrow','Tomorrow',r==='tomorrow')}${pill('range','week','Next 7 days',r==='week')}</div>
+    `<div class="pills"><span class="p-l">Show</span>${pill('range','today','Today',r==='today')}${pill('range','tomorrow','Tomorrow',r==='tomorrow')}${pill('range','week','Next 7 days',r==='week')}<button type="button" class="icon-btn" data-act="settings" data-jump="blocks" style="margin-left:auto">Edit base blocks</button></div>
      <div class="pills"><span class="p-l">Calendars</span>${shownCals().map(c=>pill('cal',c.id,c.name,!S.ui.hiddenCals.includes(c.id),`<span class="dot c-${calColor(c.id)}"></span>`)).join('')||'<span class="meta">none connected yet</span>'}</div>`;
   const t=pd(S.today);let h=S.eventsErr?`<div class="banner err">${esc(S.eventsErr)}</div>`:'';
   if(r==='today')h+=dayHtml(t,true);
@@ -790,7 +800,7 @@ function renderNotes(){
 }
 
 /* ===================== render: settings ===================== */
-function openSettings(){$('settings').hidden=false;renderSettings();$('settings').querySelector('button').focus()}
+function openSettings(el){$('settings').hidden=false;renderSettings();$('settings').querySelector('button').focus();if(el&&el.dataset&&el.dataset.jump==='blocks'){const h=$('blocksH');if(h)h.scrollIntoView({block:'start'})}}
 function renderSettings(){
   const el=$('settings');if(el.hidden)return;const s=S.settings,g=S.mode==='google',sid=LS.get('sheetId','');
   el.innerHTML=`<div class="card-h"><h2>Settings</h2><button class="btn quiet" data-act="closeSettings" style="margin-left:auto">Close</button></div>
@@ -809,7 +819,7 @@ function renderSettings(){
   ${s.categories.map((c,i)=>`<div class="srow"><span class="dot c-${c.color}"></span><input type="text" aria-label="Category name" data-chg="catName" data-i="${i}" value="${esc(c.name)}">
     <select aria-label="Color" data-chg="catColor" data-i="${i}">${COLORS.map(k=>`<option ${k===c.color?'selected':''}>${k}</option>`).join('')}</select><button class="icon-btn" data-act="delCat" data-i="${i}">Remove</button></div>`).join('')}
   <button class="btn sm" data-act="addCat">Add category</button>
-  <h3>Weekday schedule blocks</h3><p>"Show tasks from" lists the top two open tasks from those categories inside the block. Separate names with commas.</p>
+  <h3 id="blocksH">Weekday schedule blocks</h3><p>"Show tasks from" lists the top two open tasks from those categories inside the block. Separate names with commas.</p>
   ${s.blocks.map((b,i)=>`<div class="blkrow"><label>From <input type="time" data-chg="blk" data-f="start" data-i="${i}" value="${esc(b.start)}"> to <input type="time" data-chg="blk" data-f="end" data-i="${i}" value="${esc(b.end)}">
       <button class="icon-btn" data-act="delBlk" data-i="${i}" style="margin-left:auto">Remove</button></label>
     <label>Title <input type="text" data-chg="blk" data-f="title" data-i="${i}" value="${esc(b.title)}"></label>
@@ -825,6 +835,11 @@ function renderAll(){
   if(!$('banner').querySelector('[role=alert]'))banner('');
 }
 const afterTasks=()=>{save('Tasks');renderTop();renderSchedule();renderMini();renderTasks()};
+function afterDay(){ // drop entries for days already gone, then save and redraw
+  const cut=ymd(addDays(pd(S.today),-1)),st=S.settings;
+  st.daysOff=(st.daysOff||[]).filter(x=>x>=cut);Object.keys(st.skipped||{}).forEach(k=>{if(k<cut)delete st.skipped[k]});
+  save('Settings');renderSchedule();renderMini();renderStats();
+}
 const afterLog=()=>{save('Log');renderStats();renderTrackers()};
 
 /* ===================== actions ===================== */
@@ -840,6 +855,9 @@ const ACT={
   go(el){document.body.dataset.tab=el.dataset.tab;const i=S.ui.collapsed.indexOf(el.dataset.to);if(i>=0)S.ui.collapsed.splice(i,1);if(el.dataset.to==='tasks')S.ui.status='open';renderAll();$(el.dataset.to).scrollIntoView({behavior:'smooth',block:'start'})},
   editFocus(){S.editFocus=true;renderTop();$('focusIn').focus()},
   useFocus(el){const t=task(el.dataset.id);if(t){S.focus[S.today]=t.title;S.editFocus=false;save('Focus');renderTop()}},
+  dayOff(el){const a=S.settings.daysOff=S.settings.daysOff||[],v=el.dataset.v,i=a.indexOf(v);i<0?a.push(v):a.splice(i,1);afterDay()},
+  skipBlock(el){const m=S.settings.skipped=S.settings.skipped||{},d=el.dataset.d;(m[d]=m[d]||[]).push(el.dataset.k);afterDay()},
+  restoreBlocks(el){delete (S.settings.skipped||{})[el.dataset.v];afterDay()},
   range(el){S.ui.range=el.dataset.v;saveUi();renderSchedule()},
   cal(el){const i=S.ui.hiddenCals.indexOf(el.dataset.v);i<0?S.ui.hiddenCals.push(el.dataset.v):S.ui.hiddenCals.splice(i,1);saveUi();renderSchedule();renderMini();renderStats()},
   fcat(el){S.ui.cat=el.dataset.v;saveUi();renderTasks();newHint()},
