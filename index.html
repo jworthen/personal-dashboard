@@ -43,6 +43,7 @@ a{color:var(--pink-d)}
 
 /* ---------- top bar ---------- */
 .top{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:clamp(12px,2vw,28px);align-items:center;margin-bottom:14px}
+.hello{font:600 17px var(--display);color:var(--pink-d);margin-bottom:2px}
 .date .dow{font:700 12px var(--body);text-transform:uppercase;letter-spacing:.12em;color:var(--pink-d)}
 .date h1{font-size:clamp(24px,2.6vw,34px);line-height:1.1}
 .focus{min-width:0}
@@ -230,7 +231,7 @@ input[type=checkbox]:checked::after{content:"";width:9px;height:5px;border-left:
 <body data-tab="today">
 
 <header class="top">
-  <div class="date"><div class="dow" id="dow"></div><h1 id="dateStr"></h1></div>
+  <div class="date"><div class="hello" id="hello"></div><div class="dow" id="dow"></div><h1 id="dateStr"></h1></div>
   <div class="focus" id="focusBox"></div>
   <div class="top-actions">
     <span class="sync" id="sync" role="status"></span>
@@ -353,6 +354,7 @@ const DEFAULTS=()=>({
   ],
   goals:{water:8,reading:20,walks:2},
   calendars:{},
+  name:'Jenn',
   daysOff:[],   // dates (YYYY-MM-DD) with no base schedule
   skipped:{}    // date -> base blocks skipped on that one day
 });
@@ -621,8 +623,12 @@ function weekScore(){let h=0,p=0;for(let d=weekStart();ymd(d)<=S.today;d=addDays
 function streak(k){let n=0,d=pd(S.today);if(!(S.log[S.today]||{})[k])d=addDays(d,-1);while((S.log[ymd(d)]||{})[k]){n++;d=addDays(d,-1)}return n}
 
 /* ===================== render: top ===================== */
+function renderHello(){
+  const h=new Date().getHours(),n=String(S.settings.name||'').trim();
+  $('hello').textContent=(h>=5&&h<12?'Good morning':h>=12&&h<17?'Good afternoon':'Good evening')+(n?', '+n:'')+' ♡';
+}
 function renderTop(){
-  const now=new Date();
+  const now=new Date();renderHello();
   $('dow').textContent=now.toLocaleDateString([],{weekday:'long'});
   $('dateStr').textContent=now.toLocaleDateString([],{month:'long',day:'numeric'});
   const f=S.focus[S.today],box=$('focusBox');
@@ -817,6 +823,8 @@ function renderSettings(){
     :`<p>The dashboard asks Google for two things: permission to <b>view</b> your calendars (it can never change them), and access to the one spreadsheet it creates for your tasks, notes, and trackers.</p>
       ${CLIENT_ID?'':`<div class="srow"><input type="text" id="cidIn" aria-label="Google Client ID" placeholder="Paste your Google Client ID" value="${esc(LS.get('clientId',''))}"><button class="btn" data-act="saveCid">Save</button></div>`}
       <div class="srow"><button class="btn primary" data-act="signin" ${clientId()?'':'disabled'}>Connect Google</button></div>`}
+  <h3>Greeting</h3>
+  <div class="srow"><label>Your name <input type="text" data-chg="name" value="${esc(s.name||'')}" placeholder="Leave blank for no name"></label></div>
   <h3>Calendars to show</h3>
   ${S.calendars.length?S.calendars.map(c=>`<div class="srow"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-chg="calOn" data-id="${esc(c.id)}" ${calOn(c)?'checked':''}> ${esc(c.name)}${c.primary?' <span class="meta">(main)</span>':''}</label></div>`).join(''):'<p>Connect Google to choose calendars.</p>'}
   <h3>Daily goals</h3>
@@ -899,6 +907,7 @@ const CHG={
   toggleTask(el){const t=task(el.dataset.id);if(!t)return;t.done=el.checked;t.completed=t.done?S.today:'';afterTasks()},
   editTask(el){const t=task(el.dataset.id);if(!t)return;const v=el.value.trim();if(el.dataset.f==='title'&&!v){el.value=t.title;return}t[el.dataset.f]=v;afterTasks()},
   calOn(el){S.settings.calendars[el.dataset.id]=el.checked;save('Settings');refreshAll('cal')},
+  name(el){S.settings.name=el.value.trim();save('Settings');renderHello()},
   goal(el){const n=Math.round(Number(el.value));if(n>0){S.settings.goals[el.dataset.f]=n;save('Settings');renderStats();renderTrackers()}},
   catName(el){const c=S.settings.categories[el.dataset.i],v=el.value.trim();if(!c||!v||v===c.name){el.value=c?c.name:'';return}
     if(S.settings.categories.some(x=>x!==c&&x.name.toLowerCase()===v.toLowerCase())){el.value=c.name;return}
@@ -958,7 +967,7 @@ function boot(){
   setInterval(()=>{ // every minute: move the "now" marker, roll the date over at midnight
     const t=ymd(new Date());
     if(t!==S.today){if(S.trackDate===S.today)S.trackDate=t;S.today=t;S.editFocus=false;renderAll();refreshAll()}
-    else{renderSchedule();renderMini();renderStats()}
+    else{renderHello();renderSchedule();renderMini();renderStats()}
   },60000);
   setInterval(()=>{if(!document.hidden)refreshAll()},5*60000); // every 5 minutes
   let last=Date.now();
