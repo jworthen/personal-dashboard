@@ -125,8 +125,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--lav);outline:none}
 .skip{float:right;margin-left:6px;background:rgba(255,255,255,.6);font-size:11.5px;padding:1px 8px}
 
 /* ---------- tasks ---------- */
-.addrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
-.addrow input[type=text]{flex:1 1 200px}
+.addrow{display:flex;gap:8px 6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding-bottom:12px;border-bottom:1px dotted var(--rule)}
+.addrow input[type=text],.addrow .pills{flex:1 1 100%}
+.addrow .duelab{font-size:12px;font-weight:700;color:var(--muted);display:flex;gap:6px;align-items:center;margin-right:auto}
 .tasklist{list-style:none;margin:0;padding:0;display:grid;gap:4px;min-height:34px}
 .task{border-radius:12px;background:#FFFDFE;border:1px solid var(--rule)}
 .task .row{display:flex;align-items:center;gap:8px;padding:6px 8px;flex-wrap:wrap}
@@ -740,16 +741,19 @@ function taskHtml(t,compact){
   </li>`;
 }
 function renderTaskForm(){
+  const nc=newCat();
   $('taskForm').innerHTML=`<input type="text" id="newTitle" aria-label="New task">
-    <input type="date" id="newDue" aria-label="Due date"><button class="btn primary">Add</button>`;
+    <div class="pills" id="newCats" role="group" aria-label="Category for the new task"><span class="p-l">Add as</span>${S.settings.categories.map(c=>pill('newcat',c.name,c.name,c.name===nc,`<span class="dot c-${c.color}"></span>`)).join('')}</div>
+    <label class="duelab">Due <input type="date" id="newDue" aria-label="Due date"></label><button class="btn primary">Add task</button>`;
   newHint();
 }
-const newCat=()=>S.ui.cat!=='all'?S.ui.cat:(S.settings.categories.find(c=>c.name==='Personal')||S.settings.categories[0]).name;
+// category for the next new task: its own picker in the add row, remembered between tasks
+const newCat=()=>{const c=S.settings.categories;return (c.find(x=>x.name===S.ui.newCat)||c.find(x=>x.name==='Personal')||c[0]).name};
 function newHint(){const el=$('newTitle');if(el)el.placeholder='Add a '+newCat()+' task'}
 function renderTasks(){
   const u=S.ui;
   $('taskFilters').innerHTML=
-    `<div class="pills"><span class="p-l">Category</span>${pill('fcat','all','All',u.cat==='all')}${S.settings.categories.map(c=>pill('fcat',c.name,c.name,u.cat===c.name,`<span class="dot c-${c.color}"></span>`)).join('')}</div>
+    `<div class="pills"><span class="p-l">Filter</span>${pill('fcat','all','All',u.cat==='all')}${S.settings.categories.map(c=>pill('fcat',c.name,c.name,u.cat===c.name,`<span class="dot c-${c.color}"></span>`)).join('')}</div>
      <div class="pills"><span class="p-l">Status</span>${pill('fstatus','open','Open',u.status==='open')}${pill('fstatus','overdue','Overdue',u.status==='overdue')}${pill('fstatus','done','Done',u.status==='done')}
        <span class="p-l" style="margin-left:8px">Due</span>${pill('fdue','any','Any time',u.due==='any')}${pill('fdue','today','Today',u.due==='today')}${pill('fdue','week','This week',u.due==='week')}</div>`;
   const hid=S.tasks.filter(t=>!t.done&&!passes(t)).length;
@@ -876,6 +880,7 @@ const ACT={
   restoreBlocks(el){delete (S.settings.skipped||{})[el.dataset.v];afterDay()},
   range(el){S.ui.range=el.dataset.v;saveUi();renderSchedule()},
   cal(el){const i=S.ui.hiddenCals.indexOf(el.dataset.v);i<0?S.ui.hiddenCals.push(el.dataset.v):S.ui.hiddenCals.splice(i,1);saveUi();renderSchedule();renderMini();renderStats()},
+  newcat(el){S.ui.newCat=el.dataset.v;saveUi();document.querySelectorAll('#newCats .pill').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===S.ui.newCat)));newHint();$('newTitle').focus()},
   fcat(el){S.ui.cat=el.dataset.v;saveUi();renderTasks();newHint()},
   clearFilters(){S.ui.cat='all';S.ui.status='open';S.ui.due='any';saveUi();renderTasks();newHint()},
   fstatus(el){S.ui.status=el.dataset.v;saveUi();renderTasks()},
@@ -922,7 +927,9 @@ document.addEventListener('change',e=>{const el=e.target.closest('[data-chg]');i
 document.addEventListener('submit',e=>{
   e.preventDefault();const id=e.target.id;
   if(id==='taskForm'){const v=$('newTitle').value.trim();if(!v)return;
-    S.tasks.push({id:uid(),title:v,category:newCat(),due:$('newDue').value,quadrant:'backlog',done:false,created:S.today,completed:''});
+    const nt={id:uid(),title:v,category:newCat(),due:$('newDue').value,quadrant:'backlog',done:false,created:S.today,completed:''};
+    S.tasks.push(nt);
+    if(!passes(nt)){S.ui.cat='all';S.ui.status='open';S.ui.due='any';saveUi()} // never let a filter hide the task you just added
     $('newTitle').value='';$('newDue').value='';afterTasks();$('newTitle').focus()}
   else if(id==='capForm'){const v=$('capText').value.trim();if(!v)return;
     S.notes.push({id:uid(),type:/^https?:\/\/\S+$/i.test(v)?'link':S.ui.cap,text:v,created:S.today});$('capText').value='';save('Notes');renderNotes()}
