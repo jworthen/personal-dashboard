@@ -73,7 +73,7 @@ This tells Google that your dashboard is allowed to ask you to sign in. Google r
 
 ## Good to know
 
-**Sign-in lasts about an hour.** After that you will see a yellow bar with a **Reconnect** button. One tap renews it. Anything you changed while it was timed out is kept on the device and saved as soon as you reconnect. This is the trade-off for not running a server.
+**Staying connected.** Google only hands out one-hour passes to browser-only apps, so the dashboard renews its pass by itself a few minutes before it runs out, and whenever you open the page. For that to work, allow pop-ups for your dashboard address once on each device (in Chrome: the pop-up blocked icon in the address bar, then "Always allow"; on Android: Chrome menu, Settings, Site settings, Pop-ups and redirects). You may see a small Google window flash open and shut about once an hour. If pop-ups are blocked, a yellow bar appears and your next tap reconnects instead. Anything you change while disconnected is kept on the device and saved once it reconnects.
 
 **Refreshing.** The dashboard reloads when you open it, every 5 minutes while it is open, and whenever you tap a Refresh button. Changes you make save within a second or so.
 

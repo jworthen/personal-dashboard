@@ -437,15 +437,47 @@ function save(tab){
 
 /* ===================== Google: sign-in ===================== */
 class AuthErr extends Error{}
+const gisReady=()=>!!(window.google&&google.accounts&&google.accounts.oauth2);
+let silentTry=false, popupBlocked=false, tapRenew=false, lastTry=0;
+// Ask Google for a fresh one-hour pass. silent = started by the dashboard itself, not by a tap.
+function requestToken(silent){
+  if(!clientId()||!gisReady())return false;
+  if(!tokenClient)tokenClient=google.accounts.oauth2.initTokenClient({client_id:clientId(),scope:SCOPES,callback:onToken,error_callback:onTokenError});
+  silentTry=!!silent;lastTry=Date.now();
+  const hint=LS.get('hint','');
+  tokenClient.requestAccessToken(hint?{prompt:'',login_hint:hint}:{prompt:''});
+  return true;
+}
+function onTokenError(e){
+  const blocked=e&&e.type==='popup_failed_to_open';
+  if(silentTry){
+    if(blocked){ // browser stopped the automatic window: fall back to renewing on the next tap
+      popupBlocked=true;tapRenew=true;
+      banner(`To stay connected automatically, allow pop-ups for this page. Until then, your next tap reconnects. <button class="btn primary sm" data-act="signin">Reconnect now</button>`,'',true);
+    }else if(!tokenOk())showAuthBanner();
+    return;
+  }
+  banner('Sign-in did not finish'+(blocked?': the pop-up was blocked. Allow pop-ups for this page and try again.':'.'),'err');
+}
 function signIn(){
   if(!clientId()){openSettings();return}
-  if(!(window.google&&google.accounts&&google.accounts.oauth2)){banner('Google sign-in is still loading. Try again in a moment.','err');return}
-  if(!tokenClient)tokenClient=google.accounts.oauth2.initTokenClient({client_id:clientId(),scope:SCOPES,callback:onToken,
-    error_callback:e=>banner('Sign-in did not finish'+(e&&e.type==='popup_failed_to_open'?': the popup was blocked. Allow popups for this page and try again.':'.'),'err')});
-  tokenClient.requestAccessToken({prompt:''});
+  if(!requestToken(false))banner('Google sign-in is still loading. Try again in a moment.','err');
 }
+// Renew a few minutes before the hour is up (or straight away if it already ran out).
+function autoRenew(){
+  if(S.mode!=='google'||document.hidden||!clientId()||!gisReady())return;
+  if(token&&token.exp-Date.now()>5*60000)return;
+  if(popupBlocked||Date.now()-lastTry<3*60000)return;
+  requestToken(true);
+}
+document.addEventListener('click',e=>{ // fallback when pop-ups are blocked: any tap may open the Google window
+  if(!tapRenew||S.mode!=='google')return;
+  if(token&&token.exp-Date.now()>5*60000)return;
+  tapRenew=false;if(!e.target.closest('[data-act=signin]'))requestToken(false);
+},true);
 function onToken(r){
-  if(!r||r.error){banner('Google sign-in was not completed.','err');return}
+  if(!r||r.error){if(silentTry){if(!tokenOk())showAuthBanner()}else banner('Google sign-in was not completed.','err');return}
+  popupBlocked=false;tapRenew=false;
   const need=SCOPES.split(' ');
   if(!google.accounts.oauth2.hasGrantedAllScopes(r,...need)){banner('Both boxes need to be ticked on the Google screen (view calendar, and manage the dashboard\'s own file). Tap Connect to try again.','err');return}
   token={access_token:r.access_token,exp:Date.now()+(Number(r.expires_in||3600)-90)*1000};LS.set('token',token);
@@ -532,6 +564,7 @@ async function loadCalendar(){
     const cl=await gfetch(CAL+'/users/me/calendarList?minAccessRole=reader&maxResults=250');
     S.calendars=(cl.items||[]).map(c=>({id:c.id,name:c.summaryOverride||c.summary||c.id,primary:!!c.primary,selected:c.primary||c.selected===true}))
       .sort((a,b)=>(b.primary-a.primary)||a.name.localeCompare(b.name));
+    const me=S.calendars.find(c=>c.primary);if(me&&/@/.test(me.id))LS.set('hint',me.id); // lets Google skip the account chooser when renewing
     const t0=sod(new Date()),t1=addDays(t0,8);let failed=[];
     const res=await Promise.all(shownCals().map(c=>gfetch(`${CAL}/calendars/${encodeURIComponent(c.id)}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(t0.toISOString())}&timeMax=${encodeURIComponent(t1.toISOString())}`)
       .then(r=>(r.items||[]).map(it=>normEvent(it,c.id)).filter(Boolean)).catch(e=>{if(e instanceof AuthErr)throw e;failed.push(c.name);return null})));
@@ -562,7 +595,8 @@ async function refreshAll(what='all'){
   loading=false;renderAll();
 }
 function showAuthBanner(){
-  banner(`Your Google sign-in timed out (it lasts about an hour). You're seeing the last saved copy. <button class="btn primary sm" data-act="signin">Reconnect</button>`,'',true);
+  if(!popupBlocked&&S.mode==='google'&&!document.hidden&&gisReady()&&Date.now()-lastTry>3*60000){requestToken(true);return} // try by itself first
+  banner(`Your Google sign-in timed out. You're seeing the last saved copy. <button class="btn primary sm" data-act="signin">Reconnect</button>`,'',true);
 }
 function banner(html,cls,raw){
   const b=$('banner');
@@ -970,15 +1004,19 @@ function boot(){
   loadCache();
   if(S.mode==='google'){S.events=LS.get('events',[]);S.calendars=LS.get('cals',[]);S.eventsAt=LS.get('eventsAt',0)}else demoCalendar();
   renderTaskForm();renderAll();
-  if(S.mode==='google')refreshAll();
+  if(S.mode==='google'){
+    if(tokenOk())refreshAll();
+    else{let n=0;const t=setInterval(()=>{if(gisReady()){clearInterval(t);autoRenew()}else if(++n>40){clearInterval(t);showAuthBanner()}},250)} // wait for Google's script, then renew
+  }
   setInterval(()=>{ // every minute: move the "now" marker, roll the date over at midnight
     const t=ymd(new Date());
     if(t!==S.today){if(S.trackDate===S.today)S.trackDate=t;S.today=t;S.editFocus=false;renderAll();refreshAll()}
     else{renderHello();renderSchedule();renderMini();renderStats()}
+    autoRenew();
   },60000);
   setInterval(()=>{if(!document.hidden)refreshAll()},5*60000); // every 5 minutes
   let last=Date.now();
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-last>60000){last=Date.now();refreshAll()}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;autoRenew();if(Date.now()-last>60000){last=Date.now();if(tokenOk())refreshAll()}});
   window.addEventListener('beforeunload',()=>{if(dirty.size&&tokenOk())flush()});
 }
 boot();
